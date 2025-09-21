@@ -27,13 +27,14 @@ import (
 */
 
 var (
-	errUUIDInvalidVersion = errors.New("invalid uuid version")
+	errUUID7InvalidVersion = errors.New("invalid uuid version")
+	errUUID7InvalidData    = errors.New("data cannot be converted to uuid v7")
 )
 
 // GetUUID7Timestamp extracts the timestamp from a UUID v7
 func GetUUID7Timestamp(u uuid.UUID) (time.Time, error) {
 	if u.Version() != 7 {
-		return time.Time{}, fmt.Errorf("checking uuid version: %w", errUUIDInvalidVersion)
+		return time.Time{}, fmt.Errorf("checking uuid version: %w", errUUID7InvalidVersion)
 	}
 
 	// Get UUID timestamp part
@@ -51,19 +52,20 @@ func GetUUID7Timestamp(u uuid.UUID) (time.Time, error) {
 	return time.UnixMilli(int64(timestamp)), nil
 }
 
-// NewUUID7FromTimestamp creates a UUID v7 from a provided timestamp
-func NewUUID7FromTimestamp(timestamp time.Time) (uuid.UUID, error) {
-	// Convert timestamp to milliseconds since Unix epoch
-	millis := timestamp.UnixMilli()
-
+// NewUUID7FromTime creates a UUID v7 from a provided time
+// Function returns three values: UUID v7, timestamp including milliseconds and error
+func NewUUID7FromTime(tm time.Time) (uuid.UUID, error) {
 	// Create a new UUID with random data
 	uuidOut, err := uuid.NewRandom()
 	if err != nil {
 		return uuid.Nil, err
 	}
 
+	// Convert timestamp to milliseconds since Unix epoch
+	millis := tm.UnixMilli()
+
 	// Extract nanoseconds for sequence number (12 bits)
-	nano := timestamp.UnixNano()
+	nano := tm.UnixNano()
 	seq := (nano - millis*1000000) >> 8 // 12 bits of fractional milliseconds
 
 	// Set the timestamp in the first 6 bytes (48 bits)
@@ -83,9 +85,8 @@ func NewUUID7FromTimestamp(timestamp time.Time) (uuid.UUID, error) {
 	return uuidOut, nil
 }
 
-// NewUUID7FromString converts a string UUID to UUID v7 format
-// This function extracts the timestamp from the input UUID and creates a new v7 UUID
-func NewUUID7FromString(u string) (uuid.UUID, error) {
+// ParseUUID7 decodes input data into a UUID V7 or returns an error if it cannot be parsed.
+func ParseUUID7(u string) (uuid.UUID, error) {
 	uuidIn, err := uuid.Parse(u)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("parsing input string uuid: %w", err)
@@ -96,11 +97,15 @@ func NewUUID7FromString(u string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("getting uuid v7 timestamp: %w", err)
 	}
 
-	uuidV7FromTimestamp, err := NewUUID7FromTimestamp(uuidTimestamp)
+	uuidV7FromTimestamp, err := NewUUID7FromTime(uuidTimestamp)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("creating uuid v7 from timestamp: %w", err)
 	}
 
-	// Create a new UUID v7 from the extracted timestamp
-	return uuidV7FromTimestamp, nil
+	// Compare first 6 bytes of UUIDs which represent timestamps
+	if uuidIn.String()[:12] != uuidV7FromTimestamp.String()[:12] {
+		return uuid.Nil, fmt.Errorf("comparing reference uuid v7 data: %w", errUUID7InvalidData)
+	}
+
+	return uuidIn, nil
 }
